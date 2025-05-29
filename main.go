@@ -3,56 +3,51 @@ package main
 import (
 	"bytes"
 	"context"
-	"github.com/pelletier/go-toml/v2"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/pflag"
 	"golang.design/x/clipboard"
-	"log/slog"
 	"net/url"
 	"os"
 	"strings"
 )
 
-var Verbosity int
-var ConfigPath string
-var cfg RootCfg
+var ctx = context.Background()
 
 func init() {
-	pflag.CountVarP(&Verbosity, "verbose", "v", "verbosity level (-v info -vv debug), default level warn.")
-	pflag.StringVarP(&ConfigPath, "config", "c", ".hexsewn.toml", "path to .hexsewn.toml")
+	pflag.CountVarP(&cfg.Verbosity, "verbose", "v", "verbosity level (-v info, -vv debug, -vvv (and further) trace, default level warn.")
+	pflag.StringVarP(&cfg.ConfigPath, "config", "c", ".hexsewn.toml", "path to .hexsewn.toml")
+	pflag.BoolVarP(&cfg.PrettyLogs, "pretty", "p", false, "pretty print logs, if given, logs will be pretty printed with a human-friendly format, with colors. (default: false, json structured logs)")
 	pflag.Parse()
 
-	cfgContents, err := os.ReadFile(ConfigPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			slog.Error("config path does not exist", "path", ConfigPath)
-		} else {
-			slog.Error("cannot read config", "path", ConfigPath, "error", err)
-		}
-		os.Exit(1)
+	if cfg.PrettyLogs {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	}
-	if err = toml.Unmarshal(cfgContents, &cfg); err != nil {
-		slog.Error("failed to load config", "error", err)
-		os.Exit(1)
+
+	if err := cfg.Read(); err != nil {
+		log.Error().Err(err).Msg("failed to read config")
+		return
 	}
-	switch Verbosity {
+	go cfg.Watch(ctx)
+	switch cfg.Verbosity {
 	case 0:
-		slog.SetLogLoggerLevel(slog.LevelWarn)
+		zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	case 1:
-		slog.SetLogLoggerLevel(slog.LevelInfo)
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	case 2:
-		slog.SetLogLoggerLevel(slog.LevelDebug)
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	default:
-		slog.SetLogLoggerLevel(slog.LevelDebug)
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	}
-	if err = clipboard.Init(); err != nil {
-		slog.Error("failed to initialize clipboard", "error", err)
-		os.Exit(1)
+	if err := clipboard.Init(); err != nil {
+		log.Error().Err(err).Msg("failed to initialize clipboard")
+		return
 	}
 }
 
 func main() {
-	slog.Info("watching clipboard...")
-	ch := clipboard.Watch(context.Background(), clipboard.FmtText)
+	log.Info().Msg("watching clipboard")
+	ch := clipboard.Watch(ctx, clipboard.FmtText)
 	var lastWritten []byte
 	for dataBytes := range ch {
 		if !bytes.Equal(lastWritten, dataBytes) {
@@ -62,7 +57,7 @@ func main() {
 				if len(data) > 60 {
 					data = data[:60]
 				}
-				slog.Debug("skipping invalid URL", "url", data)
+				log.Debug().Str("url", data).Msg("skipping invalid URL")
 				continue
 			}
 			domain, redirectTo, found := cfg.RedirectConfig.DetectDomain(uri)
