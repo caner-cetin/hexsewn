@@ -1,0 +1,66 @@
+name: build and release hexsewn
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.3'
+          go-version-file: 'go.mod'
+          check-latest: true
+          cache-dependency-path: 'go.sum'
+
+      - name: Setup just
+        uses: extractions/setup-just@v3
+
+      - name: Build and Package
+        run: |
+          just build
+          just package
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-build-artifacts
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+          compression-level: 9
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: nightly-${{ github.run_id }}-${{ github.sha }}
+          name: Nightly Build ${{ github.run_id }} (commit ${{ env.SHORT_SHA }})
+          body: |
+            Automated nightly build from the main branch.
+
+            **Commit:** `${{ github.sha }}`
+            **Triggered by:** `${{ github.triggering_actor }}`
+            **Workflow Run:** [Link](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            This is an automated pre-release.
+          draft: false
+          prerelease: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+          fail_on_unmatched_files: true
