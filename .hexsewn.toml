@@ -1,0 +1,9 @@
+[Redirect]
+
+[Redirect.Twitter]
+From = ["x.com", "twitter.com"]
+To = "fxtwitter.com"
+
+[Redirect.Reddit]
+From = ["old.reddit.com", "reddit.com"]
+To = "rxddit.com"
